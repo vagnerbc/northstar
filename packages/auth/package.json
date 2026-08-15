@@ -1,0 +1,26 @@
+{
+  "name": "@ecommerce/auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests"
+  },
+  "dependencies": {
+    "@ecommerce/http": "workspace:*",
+    "express": "5.2.1",
+    "jose": "6.2.8"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "rimraf": "6.1.2",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  }
+}

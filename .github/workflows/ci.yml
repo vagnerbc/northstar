@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.19.0 }
+      - uses: actions/setup-node@v5
+        with: { node-version: 24.14.0, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm generate
+      - name: Generated contracts and clients are current
+        run: git diff --exit-code
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test:coverage
+      - run: pnpm build
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.19.0 }
+      - uses: actions/setup-node@v5
+        with: { node-version: 24.14.0, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm generate
+      - run: pnpm test:integration
+        env: { RUN_INTEGRATION_TESTS: 'true' }
+
+  compose-and-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.19.0 }
+      - uses: actions/setup-node@v5
+        with: { node-version: 24.14.0, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: docker compose config --quiet
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: playwright-report, retention-days: 7 }
+
+  infrastructure-and-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v4
+        with: { terraform_version: 1.13.4 }
+      - run: terraform fmt -check -recursive infra/terraform
+      - working-directory: infra/terraform/bootstrap
+        run: terraform init -backend=false && terraform validate
+      - working-directory: infra/terraform/environments/dev
+        run: terraform init -backend=false && terraform validate
+      - uses: terraform-linters/setup-tflint@v5
+      - working-directory: infra/terraform/environments/dev
+        run: tflint --init && tflint --recursive
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with: { sarif_file: trivy-results.sarif }

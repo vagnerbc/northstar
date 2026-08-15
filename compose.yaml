@@ -1,0 +1,498 @@
+name: ecommerce-study
+
+x-node-app: &node-app
+  build:
+    context: .
+    target: development
+  restart: unless-stopped
+  volumes:
+    - .:/workspace
+    - workspace-node-modules:/workspace/node_modules
+  environment: &service-environment
+    NODE_ENV: development
+    KAFKA_BROKERS: kafka:9092
+    KEYCLOAK_ISSUER: http://localhost:8080/realms/ecommerce
+    KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    LOG_LEVEL: info
+
+x-postgres: &postgres
+  image: postgres:18.4-bookworm
+  restart: unless-stopped
+  healthcheck:
+    test: [CMD-SHELL, 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+    interval: 5s
+    timeout: 3s
+    retries: 20
+
+services:
+  catalog-db:
+    <<: *postgres
+    environment: { POSTGRES_USER: catalog, POSTGRES_PASSWORD: catalog, POSTGRES_DB: catalog }
+    ports: ['5441:5432']
+    volumes: [catalog-db-data:/var/lib/postgresql]
+
+  cart-db:
+    <<: *postgres
+    environment: { POSTGRES_USER: cart, POSTGRES_PASSWORD: cart, POSTGRES_DB: cart }
+    ports: ['5442:5432']
+    volumes: [cart-db-data:/var/lib/postgresql]
+
+  order-db:
+    <<: *postgres
+    environment: { POSTGRES_USER: orders, POSTGRES_PASSWORD: orders, POSTGRES_DB: orders }
+    ports: ['5443:5432']
+    volumes: [order-db-data:/var/lib/postgresql]
+
+  payment-db:
+    <<: *postgres
+    environment: { POSTGRES_USER: payment, POSTGRES_PASSWORD: payment, POSTGRES_DB: payment }
+    ports: ['5444:5432']
+    volumes: [payment-db-data:/var/lib/postgresql]
+
+  notification-db:
+    <<: *postgres
+    environment:
+      { POSTGRES_USER: notification, POSTGRES_PASSWORD: notification, POSTGRES_DB: notification }
+    ports: ['5445:5432']
+    volumes: [notification-db-data:/var/lib/postgresql]
+
+  keycloak-db:
+    <<: *postgres
+    environment: { POSTGRES_USER: keycloak, POSTGRES_PASSWORD: keycloak, POSTGRES_DB: keycloak }
+    ports: ['5446:5432']
+    volumes: [keycloak-db-data:/var/lib/postgresql]
+
+  kafka:
+    image: apache/kafka:4.2.0
+    restart: unless-stopped
+    ports: ['29092:29092']
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    volumes: [kafka-data:/var/lib/kafka/data]
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          '/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1',
+        ]
+      interval: 8s
+      timeout: 5s
+      retries: 20
+
+  temporal:
+    image: temporalio/temporal:1.8.1
+    command: [server, start-dev, --ip, 0.0.0.0, --db-filename, /data/temporal.db]
+    restart: unless-stopped
+    ports: ['7233:7233', '8233:8233']
+    volumes: [temporal-data:/data]
+    healthcheck:
+      test: [CMD, temporal, operator, cluster, health, --address, localhost:7233]
+      interval: 8s
+      timeout: 5s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:v1.27.8
+    restart: unless-stopped
+    ports: ['1025:1025', '8025:8025']
+    environment: { MP_SMTP_AUTH_ACCEPT_ANY: '1', MP_SMTP_AUTH_ALLOW_INSECURE: '1' }
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.3
+    command: [start-dev, --import-realm]
+    restart: unless-stopped
+    depends_on: { keycloak-db: { condition: service_healthy } }
+    ports: ['8080:8080']
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KC_HOSTNAME: http://localhost:8080
+      KC_HEALTH_ENABLED: 'true'
+      KC_METRICS_ENABLED: 'true'
+      ORDER_SERVICE_CLIENT_SECRET: ${ORDER_SERVICE_CLIENT_SECRET:-local-order-secret}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-local-admin}
+    volumes:
+      [./infra/keycloak/ecommerce-realm.json:/opt/keycloak/data/import/ecommerce-realm.json:ro]
+
+  catalog-inventory-service:
+    <<: *node-app
+    command:
+      [
+        sh,
+        -c,
+        'pnpm --filter @ecommerce/catalog-inventory-service db:deploy && pnpm --filter @ecommerce/catalog-inventory-service db:seed && pnpm --filter @ecommerce/catalog-inventory-service dev',
+      ]
+    depends_on:
+      { catalog-db: { condition: service_healthy }, kafka: { condition: service_healthy } }
+    environment:
+      <<: *service-environment
+      SERVICE_NAME: catalog-inventory-service
+      DATABASE_URL: postgresql://catalog:catalog@catalog-db:5432/catalog
+      INTERNAL_AUTH_AUDIENCE: catalog-inventory-service
+      PORT: 3001
+    healthcheck:
+      {
+        test:
+          [
+            CMD,
+            node,
+            -e,
+            "fetch('http://localhost:3001/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+          ],
+        interval: 8s,
+        timeout: 4s,
+        retries: 20,
+      }
+
+  cart-service:
+    <<: *node-app
+    command:
+      [
+        sh,
+        -c,
+        'pnpm --filter @ecommerce/cart-service db:deploy && pnpm --filter @ecommerce/cart-service dev',
+      ]
+    depends_on:
+      {
+        cart-db: { condition: service_healthy },
+        kafka: { condition: service_healthy },
+        keycloak: { condition: service_started },
+      }
+    environment:
+      <<: *service-environment
+      SERVICE_NAME: cart-service
+      DATABASE_URL: postgresql://cart:cart@cart-db:5432/cart
+      USER_AUTH_AUDIENCE: web-app
+      INTERNAL_AUTH_AUDIENCE: cart-service
+      CATALOG_BASE_URL: http://catalog-inventory-service:3001
+      PORT: 3002
+    healthcheck:
+      {
+        test:
+          [
+            CMD,
+            node,
+            -e,
+            "fetch('http://localhost:3002/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+          ],
+        interval: 8s,
+        timeout: 4s,
+        retries: 20,
+      }
+
+  order-service:
+    <<: *node-app
+    command:
+      [
+        sh,
+        -c,
+        'pnpm --filter @ecommerce/order-service db:deploy && pnpm --filter @ecommerce/order-service dev',
+      ]
+    depends_on:
+      {
+        order-db: { condition: service_healthy },
+        kafka: { condition: service_healthy },
+        keycloak: { condition: service_started },
+      }
+    environment:
+      <<: *service-environment
+      SERVICE_NAME: order-service
+      DATABASE_URL: postgresql://orders:orders@order-db:5432/orders
+      USER_AUTH_AUDIENCE: web-app
+      CART_BASE_URL: http://cart-service:3002
+      INVENTORY_BASE_URL: http://catalog-inventory-service:3001
+      PAYMENT_BASE_URL: http://payment-service:3004
+      TEMPORAL_ADDRESS: temporal:7233
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/token
+      SERVICE_CLIENT_SECRET: ${ORDER_SERVICE_CLIENT_SECRET:-local-order-secret}
+      PORT: 3003
+    healthcheck:
+      {
+        test:
+          [
+            CMD,
+            node,
+            -e,
+            "fetch('http://localhost:3003/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+          ],
+        interval: 8s,
+        timeout: 4s,
+        retries: 20,
+      }
+
+  checkout-worker:
+    <<: *node-app
+    command:
+      [
+        sh,
+        -c,
+        'pnpm --filter @ecommerce/order-service db:deploy && pnpm --filter @ecommerce/order-service dev:worker',
+      ]
+    depends_on:
+      {
+        order-db: { condition: service_healthy },
+        kafka: { condition: service_healthy },
+        temporal: { condition: service_healthy },
+        keycloak: { condition: service_started },
+        catalog-inventory-service: { condition: service_healthy },
+        cart-service: { condition: service_healthy },
+        payment-service: { condition: service_healthy },
+      }
+    environment:
+      <<: *service-environment
+      SERVICE_NAME: order-service
+      DATABASE_URL: postgresql://orders:orders@order-db:5432/orders
+      CART_BASE_URL: http://cart-service:3002
+      INVENTORY_BASE_URL: http://catalog-inventory-service:3001
+      PAYMENT_BASE_URL: http://payment-service:3004
+      TEMPORAL_ADDRESS: temporal:7233
+      WORKER_PORT: 3006
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/token
+      SERVICE_CLIENT_SECRET: ${ORDER_SERVICE_CLIENT_SECRET:-local-order-secret}
+    healthcheck:
+      {
+        test:
+          [
+            CMD,
+            node,
+            -e,
+            "fetch('http://localhost:3006/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+          ],
+        interval: 8s,
+        timeout: 4s,
+        retries: 20,
+      }
+
+  payment-service:
+    <<: *node-app
+    command:
+      [
+        sh,
+        -c,
+        'pnpm --filter @ecommerce/payment-service db:deploy && pnpm --filter @ecommerce/payment-service dev',
+      ]
+    depends_on:
+      {
+        payment-db: { condition: service_healthy },
+        kafka: { condition: service_healthy },
+        keycloak: { condition: service_started },
+      }
+    environment:
+      <<: *service-environment
+      SERVICE_NAME: payment-service
+      DATABASE_URL: postgresql://payment:payment@payment-db:5432/payment
+      USER_AUTH_AUDIENCE: web-app
+      INTERNAL_AUTH_AUDIENCE: payment-service
+      PAYMENT_PROVIDER: stripe
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_replace_me}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_replace_me}
+      PORT: 3004
+    healthcheck:
+      {
+        test:
+          [
+            CMD,
+            node,
+            -e,
+            "fetch('http://localhost:3004/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+          ],
+        interval: 8s,
+        timeout: 4s,
+        retries: 20,
+      }
+
+  notification-service:
+    <<: *node-app
+    command:
+      [
+        sh,
+        -c,
+        'pnpm --filter @ecommerce/notification-service db:deploy && pnpm --filter @ecommerce/notification-service dev',
+      ]
+    depends_on:
+      {
+        notification-db: { condition: service_healthy },
+        kafka: { condition: service_healthy },
+        mailpit: { condition: service_started },
+      }
+    environment:
+      <<: *service-environment
+      SERVICE_NAME: notification-service
+      DATABASE_URL: postgresql://notification:notification@notification-db:5432/notification
+      EMAIL_PROVIDER: smtp
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      PORT: 3005
+    healthcheck:
+      {
+        test:
+          [
+            CMD,
+            node,
+            -e,
+            "fetch('http://localhost:3005/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+          ],
+        interval: 8s,
+        timeout: 4s,
+        retries: 20,
+      }
+
+  kong:
+    image: kong:3.9.3
+    restart: unless-stopped
+    depends_on:
+      {
+        catalog-inventory-service: { condition: service_healthy },
+        cart-service: { condition: service_healthy },
+        order-service: { condition: service_healthy },
+        payment-service: { condition: service_healthy },
+      }
+    ports: ['8000:8000', '8100:8100']
+    environment:
+      KONG_DATABASE: 'off'
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 127.0.0.1:8001
+      KONG_STATUS_LISTEN: 0.0.0.0:8100
+      KONG_LOG_LEVEL: notice
+    volumes: [./infra/kong/kong.yml:/kong/declarative/kong.yml:ro]
+
+  web:
+    <<: *node-app
+    command: [pnpm, --filter, '@ecommerce/web', dev]
+    depends_on: { kong: { condition: service_started }, keycloak: { condition: service_started } }
+    ports: ['5173:5173']
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+      VITE_KEYCLOAK_URL: http://localhost:8080
+      VITE_KEYCLOAK_REALM: ecommerce
+      VITE_KEYCLOAK_CLIENT_ID: ecommerce-web
+      VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-pk_test_replace_me}
+
+  stripe-cli:
+    image: stripe/stripe-cli:v1.36.0
+    profiles: [stripe]
+    command:
+      [
+        listen,
+        --api-key,
+        '${STRIPE_SECRET_KEY:-sk_test_replace_me}',
+        --forward-to,
+        http://payment-service:3004/api/v1/payments/webhooks/stripe,
+      ]
+    depends_on: { payment-service: { condition: service_healthy } }
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.138.0
+    profiles: [observability]
+    command: [--config=/etc/otelcol-contrib/config.yaml]
+    volumes: [./infra/observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro]
+    ports: ['4317:4317', '4318:4318', '8889:8889']
+    depends_on: { tempo: { condition: service_started } }
+
+  tempo:
+    image: grafana/tempo:2.9.0
+    profiles: [observability]
+    command: [-config.file=/etc/tempo.yaml]
+    volumes: [./infra/observability/tempo.yaml:/etc/tempo.yaml:ro, tempo-data:/var/tempo]
+    ports: ['3200:3200']
+
+  loki:
+    image: grafana/loki:3.5.5
+    profiles: [observability]
+    command: [-config.file=/etc/loki/local-config.yaml]
+    volumes: [./infra/observability/loki.yaml:/etc/loki/local-config.yaml:ro, loki-data:/loki]
+    ports: ['3100:3100']
+
+  alloy:
+    image: grafana/alloy:v1.11.3
+    profiles: [observability]
+    command: [run, /etc/alloy/config.alloy]
+    volumes:
+      [
+        ./infra/observability/config.alloy:/etc/alloy/config.alloy:ro,
+        /var/run/docker.sock:/var/run/docker.sock:ro,
+      ]
+    depends_on: { loki: { condition: service_started } }
+
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    profiles: [observability]
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus]
+    volumes:
+      [
+        ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro,
+        ./infra/observability/alerts.yml:/etc/prometheus/alerts.yml:ro,
+        prometheus-data:/prometheus,
+      ]
+    ports: ['9090:9090']
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    profiles: [observability]
+    command: [--kafka.server=kafka:9092]
+    depends_on: { kafka: { condition: service_healthy } }
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    profiles: [observability]
+    environment:
+      DATA_SOURCE_NAME: postgresql://orders:orders@order-db:5432/orders?sslmode=disable
+    depends_on: { order-db: { condition: service_healthy } }
+
+  grafana:
+    image: grafana/grafana:12.2.1
+    profiles: [observability]
+    ports: ['3000:3000']
+    environment:
+      {
+        GF_SECURITY_ADMIN_PASSWORD: '${GRAFANA_ADMIN_PASSWORD:-admin}',
+        GF_USERS_DEFAULT_THEME: light,
+      }
+    volumes:
+      [./infra/observability/grafana:/etc/grafana/provisioning:ro, grafana-data:/var/lib/grafana]
+    depends_on:
+      {
+        prometheus: { condition: service_started },
+        tempo: { condition: service_started },
+        loki: { condition: service_started },
+      }
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    profiles: [tools]
+    ports: ['8088:8080']
+    environment: { KAFKA_CLUSTERS_0_NAME: local, KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092 }
+    depends_on: { kafka: { condition: service_healthy } }
+
+volumes:
+  workspace-node-modules:
+  catalog-db-data:
+  cart-db-data:
+  order-db-data:
+  payment-db-data:
+  notification-db-data:
+  keycloak-db-data:
+  kafka-data:
+  temporal-data:
+  tempo-data:
+  loki-data:
+  prometheus-data:
+  grafana-data:

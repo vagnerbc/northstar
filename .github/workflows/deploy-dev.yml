@@ -1,0 +1,106 @@
+name: Deploy dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'I reviewed the Terraform plan and cost warning'
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: inputs.confirm
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      TF_IN_AUTOMATION: 'true'
+      TF_VAR_image_tag: ${{ github.sha }}
+      TF_VAR_public_base_url: ${{ vars.PUBLIC_BASE_URL }}
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_ses_identity: ${{ vars.SES_IDENTITY }}
+      TF_VAR_temporal_address: ${{ vars.TEMPORAL_ADDRESS }}
+      TF_VAR_temporal_namespace: ${{ vars.TEMPORAL_NAMESPACE }}
+      TF_VAR_temporal_api_key: ${{ secrets.TEMPORAL_API_KEY }}
+      TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+      TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      TF_VAR_keycloak_admin_password: ${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.19.0 }
+      - uses: actions/setup-node@v5
+        with: { node-version: 24.14.0, cache: pnpm }
+      - uses: hashicorp/setup-terraform@v4
+        with: { terraform_version: 1.13.4, terraform_wrapper: false }
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - run: pnpm install --frozen-lockfile && pnpm generate && pnpm build
+      - name: Plan infrastructure
+        working-directory: infra/terraform/environments/dev
+        run: terraform init -backend-config=backend.hcl && terraform plan -out=plan.tfplan
+      - name: Apply reviewed infrastructure plan
+        working-directory: infra/terraform/environments/dev
+        run: terraform apply -auto-approve plan.tfplan
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push immutable images
+        working-directory: infra/terraform/environments/dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          repositories=$(terraform output -json ecr_repositories)
+          cd ../../../..
+          docker build --target service-runtime -t ecommerce-app:${GITHUB_SHA} .
+          for service in catalog-inventory cart order checkout-worker payment notification; do
+            uri=$(jq -r --arg service "$service" '.[$service]' <<<"$repositories")
+            docker tag ecommerce-app:${GITHUB_SHA} "$uri:${GITHUB_SHA}"
+            docker push "$uri:${GITHUB_SHA}"
+          done
+          kong_uri=$(jq -r '.kong' <<<"$repositories")
+          docker build -f infra/kong/Dockerfile -t "$kong_uri:${GITHUB_SHA}" .
+          docker push "$kong_uri:${GITHUB_SHA}"
+          keycloak_uri=$(jq -r '.keycloak' <<<"$repositories")
+          docker build -f infra/keycloak/Dockerfile -t "$keycloak_uri:${GITHUB_SHA}" .
+          docker push "$keycloak_uri:${GITHUB_SHA}"
+      - name: Run expand-compatible database migrations
+        working-directory: infra/terraform/environments/dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          cluster=$(terraform output -raw ecs_cluster)
+          subnet=$(terraform output -json private_subnets | jq -r '.[0]')
+          security_group=$(terraform output -raw service_security_group)
+          tasks=$(terraform output -json task_definitions)
+          declare -A filters=( [catalog-inventory]="@ecommerce/catalog-inventory-service" [cart]="@ecommerce/cart-service" [order]="@ecommerce/order-service" [payment]="@ecommerce/payment-service" [notification]="@ecommerce/notification-service" )
+          for service in "${!filters[@]}"; do
+            task=$(jq -r --arg service "$service" '.[$service]' <<<"$tasks")
+            overrides=$(jq -nc --arg name "$service" --arg filter "${filters[$service]}" '{containerOverrides:[{name:$name,command:["pnpm","--filter",$filter,"db:deploy"]}]}')
+            task_arn=$(aws ecs run-task --cluster "$cluster" --task-definition "$task" --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[$subnet],securityGroups=[$security_group],assignPublicIp=DISABLED}" --overrides "$overrides" --query 'tasks[0].taskArn' --output text)
+            aws ecs wait tasks-stopped --cluster "$cluster" --tasks "$task_arn"
+            code=$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task_arn" --query 'tasks[0].containers[0].exitCode' --output text)
+            test "$code" = "0"
+          done
+      - name: Roll services to the new task definitions
+        working-directory: infra/terraform/environments/dev
+        shell: bash
+        run: |
+          cluster=$(terraform output -raw ecs_cluster)
+          terraform output -json ecs_services | jq -r '.[]' | while read -r service; do
+            aws ecs update-service --cluster "$cluster" --service "$service" --force-new-deployment >/dev/null
+            aws ecs wait services-stable --cluster "$cluster" --services "$service"
+          done
+      - name: Publish storefront and invalidate CloudFront
+        working-directory: infra/terraform/environments/dev
+        run: |
+          aws s3 sync ../../../../apps/web/dist "s3://$(terraform output -raw web_bucket)" --delete
+          aws cloudfront create-invalidation --distribution-id "$(terraform output -raw cloudfront_distribution_id)" --paths '/*'

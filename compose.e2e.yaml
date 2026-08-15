@@ -1,0 +1,36 @@
+services:
+  catalog-inventory-service:
+    environment:
+      NODE_ENV: test
+      AUTH_DISABLED: 'true'
+      RESERVATION_TTL_MS: 30000
+  cart-service:
+    environment:
+      NODE_ENV: test
+      AUTH_DISABLED: 'true'
+  order-service:
+    environment:
+      NODE_ENV: test
+      AUTH_DISABLED: 'true'
+      PAYMENT_WINDOW_MS: 30000
+      PAYMENT_CAPTURE_WINDOW_MS: 10000
+  checkout-worker:
+    environment:
+      NODE_ENV: test
+      AUTH_DISABLED: 'true'
+      PAYMENT_WINDOW_MS: 30000
+      PAYMENT_CAPTURE_WINDOW_MS: 10000
+  payment-service:
+    environment:
+      NODE_ENV: test
+      AUTH_DISABLED: 'true'
+      PAYMENT_PROVIDER: fake
+      STRIPE_SECRET_KEY: unused
+      STRIPE_WEBHOOK_SECRET: unused
+  notification-service:
+    environment:
+      NODE_ENV: test
+  web:
+    environment:
+      VITE_AUTH_DISABLED: 'true'
+      VITE_API_BASE_URL: http://localhost:8000

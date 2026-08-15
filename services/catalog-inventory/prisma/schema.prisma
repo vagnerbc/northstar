@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ReservationStatus {
+  ACTIVE
+  COMMITTED
+  RELEASED
+  EXPIRED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+}
+
+model Product {
+  id          String          @id @db.Uuid
+  sku         String          @unique
+  name        String
+  description String
+  imageUrl    String
+  priceAmount Int
+  currency    String          @default("BRL")
+  active      Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  inventory   InventoryItem?
+  reservations ReservationItem[]
+}
+
+model InventoryItem {
+  productId String   @id @db.Uuid
+  onHand    Int
+  reserved  Int      @default(0)
+  updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model InventoryReservation {
+  id        String            @id @db.Uuid
+  orderId   String            @unique @db.Uuid
+  status    ReservationStatus @default(ACTIVE)
+  expiresAt DateTime
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  items     ReservationItem[]
+}
+
+model ReservationItem {
+  reservationId String               @db.Uuid
+  productId     String               @db.Uuid
+  quantity      Int
+  reservation   InventoryReservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  product       Product              @relation(fields: [productId], references: [id])
+
+  @@id([reservationId, productId])
+}
+
+model OutboxEvent {
+  id            String       @id @db.Uuid
+  topic         String
+  eventType     String
+  aggregateId   String       @db.Uuid
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  availableAt   DateTime     @default(now())
+  publishedAt   DateTime?
+  createdAt     DateTime     @default(now())
+
+  @@index([status, availableAt])
+}

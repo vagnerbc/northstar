@@ -1,0 +1,68 @@
+_format_version: '3.0'
+_transform: true
+
+services:
+  - name: catalog-inventory
+    url: http://catalog-inventory-service:3001
+    routes:
+      - name: products
+        paths: [/api/v1/products]
+        strip_path: false
+        methods: [GET, OPTIONS]
+  - name: cart
+    url: http://cart-service:3002
+    routes:
+      - name: cart
+        paths: [/api/v1/cart]
+        strip_path: false
+  - name: orders
+    url: http://order-service:3003
+    routes:
+      - name: orders
+        paths: [/api/v1/orders]
+        strip_path: false
+  - name: payments
+    url: http://payment-service:3004
+    routes:
+      - name: stripe-webhook
+        paths: [/api/v1/payments/webhooks/stripe]
+        strip_path: false
+        methods: [POST, OPTIONS]
+        plugins:
+          - name: rate-limiting
+            config: { minute: 120, policy: local, limit_by: ip }
+      - name: payment-sessions
+        paths: [/api/v1/payments]
+        strip_path: false
+        methods: [GET, OPTIONS]
+      # The service exposes this route only when NODE_ENV=test and PAYMENT_PROVIDER=fake.
+      - name: test-payment-authorization
+        paths: ['~/api/v1/payments/[0-9a-f-]+/fake/authorize$']
+        strip_path: false
+        methods: [POST, OPTIONS]
+
+plugins:
+  - name: correlation-id
+    config:
+      header_name: X-Correlation-ID
+      generator: uuid
+      echo_downstream: true
+  - name: cors
+    config:
+      origins: [http://localhost:5173]
+      methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+      headers:
+        [Accept, Authorization, Content-Type, Idempotency-Key, X-Correlation-ID, Stripe-Signature]
+      exposed_headers: [X-Correlation-ID, Location]
+      credentials: true
+      max_age: 3600
+  - name: request-size-limiting
+    config: { allowed_payload_size: 1, size_unit: megabytes }
+  - name: rate-limiting
+    config: { minute: 300, policy: local, limit_by: ip }
+  - name: prometheus
+    config: { status_code_metrics: true, latency_metrics: true, upstream_health_metrics: true }
+  - name: opentelemetry
+    config:
+      traces_endpoint: http://otel-collector:4318/v1/traces
+      resource_attributes: { service.name: kong-gateway }

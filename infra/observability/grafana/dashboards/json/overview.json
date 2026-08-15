@@ -1,0 +1,121 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "HTTP request rate",
+      "id": 1,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name) (rate(ecommerce_http_server_request_duration_seconds_count[5m]))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP p95 latency",
+      "id": 2,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(ecommerce_http_server_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Kafka consumer lag",
+      "id": 3,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (consumergroup) (kafka_consumergroup_lag)",
+          "legendFormat": "{{consumergroup}}"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Correlated service logs",
+      "id": 4,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "refId": "A", "expr": "{service=~\".+\"} | json" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox p95 age",
+      "id": 5,
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(ecommerce_outbox_event_age_milliseconds_bucket[10m])))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DLQ and exhausted outbox events",
+      "id": 6,
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ecommerce_messaging_consumer_dlq_total[5m]))",
+          "legendFormat": "Kafka DLQ"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ecommerce_outbox_event_exhausted_total[5m]))",
+          "legendFormat": "Outbox exhausted"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Checkout, inventory and Stripe outcomes",
+      "id": 7,
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(ecommerce_checkout_workflow_completed_total[5m]))",
+          "legendFormat": "checkout {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ecommerce_inventory_reservation_released_total[5m]))",
+          "legendFormat": "inventory released"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(ecommerce_stripe_webhook_failures_total[5m]))",
+          "legendFormat": "Stripe webhook failures"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 41,
+  "tags": ["ecommerce", "local"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Platform overview",
+  "uid": "ecommerce-overview",
+  "version": 1
+}

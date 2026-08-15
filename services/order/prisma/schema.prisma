@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrderStatus {
+  CHECKOUT_REQUESTED
+  INVENTORY_RESERVED
+  AWAITING_PAYMENT
+  PAYMENT_AUTHORIZED
+  PAYMENT_CAPTURED
+  CONFIRMED
+  COMPENSATING
+  FAILED
+  MANUAL_REVIEW
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+}
+
+model Order {
+  id             String      @id @db.Uuid
+  displayId      String      @unique
+  userId         String
+  recipientEmail String
+  status         OrderStatus @default(CHECKOUT_REQUESTED)
+  cartId         String      @db.Uuid
+  cartVersion    Int
+  idempotencyKey String
+  shippingAddress Json
+  reservationId String?      @db.Uuid
+  paymentId     String?      @db.Uuid
+  totalAmount   Int          @default(0)
+  currency      String       @default("BRL")
+  failureReason String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  items         OrderItem[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, id])
+}
+
+model OrderItem {
+  orderId         String  @db.Uuid
+  productId       String  @db.Uuid
+  quantity        Int
+  name            String?
+  unitPriceAmount Int?
+  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@id([orderId, productId])
+}
+
+model InboxEvent {
+  eventId     String   @id @db.Uuid
+  eventType   String
+  processedAt DateTime @default(now())
+}
+
+model OutboxEvent {
+  id          String       @id @db.Uuid
+  topic       String
+  eventType   String
+  aggregateId String       @db.Uuid
+  payload     Json
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now())
+  publishedAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([status, availableAt])
+}

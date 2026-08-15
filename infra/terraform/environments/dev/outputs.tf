@@ -1,0 +1,10 @@
+output "cloudfront_url" { value = "https://${module.edge.distribution_domain}" }
+output "web_bucket" { value = module.edge.bucket_name }
+output "cloudfront_distribution_id" { value = module.edge.distribution_id }
+output "ecs_cluster" { value = module.compute.cluster_name }
+output "ecs_services" { value = module.compute.service_names }
+output "ecr_repositories" { value = module.compute.ecr_repository_urls }
+output "github_deploy_role_arn" { value = aws_iam_role.github_deploy.arn }
+output "task_definitions" { value = module.compute.task_definition_arns }
+output "private_subnets" { value = module.network.private_subnet_ids }
+output "service_security_group" { value = module.compute.service_security_group_id }

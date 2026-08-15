@@ -1,0 +1,48 @@
+{
+  "name": "event-driven-ecommerce",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Educational event-driven e-commerce microservices monorepo",
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "dev:lite": "docker compose up --build",
+    "dev:full": "docker compose --profile observability --profile tools up --build",
+    "dev:stripe": "docker compose --profile stripe up stripe-cli",
+    "down": "docker compose --profile observability --profile tools down",
+    "clean": "turbo run clean && rimraf .turbo coverage playwright-report test-results",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "test:e2e:running": "playwright test",
+    "generate": "turbo run generate",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.62.1",
+    "@testcontainers/kafka": "12.1.0",
+    "@testcontainers/postgresql": "12.1.0",
+    "@vitest/coverage-v8": "4.1.10",
+    "@types/node": "26.2.0",
+    "eslint": "10.8.1",
+    "globals": "17.5.0",
+    "prettier": "3.9.6",
+    "rimraf": "6.1.2",
+    "turbo": "2.10.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.67.0",
+    "testcontainers": "12.1.0",
+    "vitest": "4.1.10"
+  }
+}

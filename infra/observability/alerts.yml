@@ -1,0 +1,54 @@
+groups:
+  - name: ecommerce-local
+    rules:
+      - alert: HighHttpServerErrorRate
+        expr: sum(rate(ecommerce_http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m])) > 0.2
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: 'Elevated server error rate' }
+      - alert: KafkaConsumerLag
+        expr: kafka_consumergroup_lag > 100
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: 'Kafka consumer lag is above 100 messages' }
+      - alert: CheckoutManualReview
+        expr: increase(ecommerce_checkout_manual_review_total[5m]) > 0
+        labels: { severity: critical }
+        annotations: { summary: 'A checkout requires operator review' }
+      - alert: KafkaDeadLetterPublished
+        expr: increase(ecommerce_messaging_consumer_dlq_total[5m]) > 0
+        labels: { severity: warning }
+        annotations: { summary: 'A poison Kafka message was forwarded to a DLQ' }
+      - alert: OutboxPublicationExhausted
+        expr: increase(ecommerce_outbox_event_exhausted_total[5m]) > 0
+        labels: { severity: critical }
+        annotations: { summary: 'An outbox event exhausted all publication attempts' }
+      - alert: OldOutboxEvents
+        expr: histogram_quantile(0.95, sum by (le, service_name) (rate(ecommerce_outbox_event_age_milliseconds_bucket[10m]))) > 60000
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: 'Outbox p95 publication age is above one minute' }
+      - alert: StripeWebhookFailures
+        expr: increase(ecommerce_stripe_webhook_failures_total[5m]) > 2
+        labels: { severity: critical }
+        annotations: { summary: 'Stripe webhook verification or processing is failing' }
+      - alert: CheckoutFailureRate
+        expr: sum(rate(ecommerce_checkout_workflow_completed_total{status=~"FAILED|MANUAL_REVIEW"}[10m])) > 0.05
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: 'Checkout terminal failure rate is elevated' }
+      - alert: PostgreSQLExporterDown
+        expr: up{job="postgres"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: 'PostgreSQL monitoring target is down' }
+      - alert: KeycloakMetricsDown
+        expr: up{job="keycloak"} == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'Keycloak metrics endpoint is unavailable' }
+      - alert: KongMetricsDown
+        expr: up{job="kong"} == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'Kong metrics endpoint is unavailable' }

@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PaymentStatus {
+  CREATED
+  REQUIRES_ACTION
+  AUTHORIZED
+  CAPTURED
+  CANCELED
+  FAILED
+  REFUNDED
+  REFUND_FAILED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+}
+
+model Payment {
+  id                String        @id @db.Uuid
+  orderId           String        @unique @db.Uuid
+  userId            String
+  provider          String
+  providerPaymentId String        @unique
+  clientSecret      String?
+  amount            Int
+  currency          String        @default("BRL")
+  status            PaymentStatus @default(CREATED)
+  failureCode       String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+model WebhookReceipt {
+  providerEventId String   @id
+  eventType       String
+  processedAt     DateTime @default(now())
+}
+
+model OutboxEvent {
+  id          String       @id @db.Uuid
+  topic       String
+  eventType   String
+  aggregateId String       @db.Uuid
+  payload     Json
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now())
+  publishedAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([status, availableAt])
+}

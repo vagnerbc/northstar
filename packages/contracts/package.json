@@ -1,0 +1,26 @@
+{
+  "name": "@ecommerce/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "generate": "tsx scripts/generate-asyncapi.ts && tsx scripts/generate-openapi.ts && prettier --write asyncapi.json openapi.json ../../docs/api/asyncapi.json ../../docs/api/openapi.json"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "prettier": "3.9.6",
+    "rimraf": "6.1.2",
+    "tsx": "4.23.12",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  }
+}

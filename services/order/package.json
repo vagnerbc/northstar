@@ -1,0 +1,52 @@
+{
+  "name": "@ecommerce/order-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rimraf dist",
+    "dev": "tsx watch src/main.ts",
+    "dev:worker": "tsx watch src/worker.ts",
+    "start": "node dist/main.js",
+    "start:worker": "node dist/worker.js",
+    "generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@ecommerce/auth": "workspace:*",
+    "@ecommerce/config": "workspace:*",
+    "@ecommerce/contracts": "workspace:*",
+    "@ecommerce/http": "workspace:*",
+    "@ecommerce/logger": "workspace:*",
+    "@ecommerce/messaging": "workspace:*",
+    "@ecommerce/observability": "workspace:*",
+    "@prisma/adapter-pg": "7.9.1",
+    "@prisma/client": "7.9.1",
+    "@temporalio/client": "1.22.0",
+    "@temporalio/common": "1.22.0",
+    "@temporalio/worker": "1.22.0",
+    "@temporalio/workflow": "1.22.0",
+    "dotenv": "17.2.3",
+    "express": "5.2.1",
+    "pg": "8.23.0",
+    "pino": "10.3.1",
+    "uuid": "14.0.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/pg": "8.21.0",
+    "prisma": "7.9.1",
+    "rimraf": "6.1.2",
+    "tsx": "4.23.12",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  }
+}
