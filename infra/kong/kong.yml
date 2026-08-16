@@ -52,7 +52,16 @@ plugins:
       origins: [http://localhost:5173]
       methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
       headers:
-        [Accept, Authorization, Content-Type, Idempotency-Key, X-Correlation-ID, Stripe-Signature]
+        [
+          Accept,
+          Authorization,
+          Content-Type,
+          Idempotency-Key,
+          X-Correlation-ID,
+          X-Test-User-ID,
+          X-Test-User-Email,
+          Stripe-Signature,
+        ]
       exposed_headers: [X-Correlation-ID, Location]
       credentials: true
       max_age: 3600

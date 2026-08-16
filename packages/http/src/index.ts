@@ -44,7 +44,13 @@ export function validate<TSchema extends z.ZodType>(
       next(new AppError('The request is invalid.', 400, 'VALIDATION_ERROR', result.error.issues));
       return;
     }
-    request[source] = result.data;
+    // Express 5 exposes query through a getter, so direct assignment throws at runtime.
+    Object.defineProperty(request, source, {
+      configurable: true,
+      enumerable: true,
+      value: result.data,
+      writable: true,
+    });
     next();
   };
 }

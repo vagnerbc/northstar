@@ -11,8 +11,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
-    "dev:lite": "docker compose up --build",
-    "dev:full": "docker compose --profile observability --profile tools up --build",
+    "dev:lite": "docker compose up --build --watch",
+    "dev:full": "docker compose --profile observability --profile tools up --build --watch",
     "dev:stripe": "docker compose --profile stripe up stripe-cli",
     "down": "docker compose --profile observability --profile tools down",
     "clean": "turbo run clean && rimraf .turbo coverage playwright-report test-results",

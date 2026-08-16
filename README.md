@@ -21,6 +21,8 @@ pnpm dev:lite
 
 The first image build downloads the Node workspace dependencies and can take several minutes. Compose applies every Prisma migration and seeds the catalog automatically. Wait until the service health checks become healthy, then open the storefront.
 
+Compose Watch synchronizes application source files for hot reload. After changing a package manifest, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, or `Dockerfile`, stop the stack and run `pnpm dev:lite` again so the shared development image is rebuilt for every service.
+
 | Resource                                               | URL / endpoint        | Credentials                       |
 | ------------------------------------------------------ | --------------------- | --------------------------------- |
 | Storefront                                             | http://localhost:5173 | `buyer` / `buyer123`              |
@@ -40,6 +42,7 @@ pnpm dev:stripe     # forwards signed Stripe webhooks after test keys are config
 pnpm down
 pnpm generate       # OpenAPI, AsyncAPI, Prisma clients and Orval client
 pnpm check          # format, lint, typecheck, unit tests and builds
+pnpm exec playwright install chromium # one-time browser installation for local E2E
 pnpm test:e2e       # isolated Compose stack with the test-only fake payment adapter
 ```
 

@@ -1,4 +1,5 @@
 .git
+.pnpm-store
 .turbo
 **/node_modules
 **/dist
@@ -7,4 +8,4 @@ playwright-report
 test-results
 .env
 .tools
-terraform/**/.terraform
+**/.terraform

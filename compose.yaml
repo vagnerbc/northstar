@@ -1,13 +1,30 @@
 name: ecommerce-study
 
+# Every Node application uses the same monorepo development image; only commands and environment differ.
 x-node-app: &node-app
-  build:
-    context: .
-    target: development
+  image: ${ECOMMERCE_DEV_IMAGE:-ecommerce-development:local}
   restart: unless-stopped
-  volumes:
-    - .:/workspace
-    - workspace-node-modules:/workspace/node_modules
+  develop:
+    watch:
+      - action: sync
+        path: .
+        target: /workspace
+        ignore:
+          - .env
+          - .git/
+          - .pnpm-store/
+          - .tools/
+          - .turbo/
+          - node_modules/
+          - '**/node_modules/'
+          - '**/dist/'
+          - '**/coverage/'
+          - '**/.terraform/'
+          - package.json
+          - '**/package.json'
+          - pnpm-lock.yaml
+          - pnpm-workspace.yaml
+          - Dockerfile
   environment: &service-environment
     NODE_ENV: development
     KAFKA_BROKERS: kafka:9092
@@ -93,12 +110,30 @@ services:
       timeout: 5s
       retries: 20
 
+  kafka-init:
+    image: apache/kafka:4.2.0
+    restart: 'no'
+    depends_on: { kafka: { condition: service_healthy } }
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        for topic in \
+          order.events.v1 order.events.v1.dlq \
+          payment.events.v1 payment.events.v1.dlq \
+          catalog-inventory.events.v1 catalog-inventory.events.v1.dlq; do
+          /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server kafka:9092 \
+            --create --if-not-exists \
+            --topic "$$topic" --partitions 3 --replication-factor 1
+        done
+
   temporal:
     image: temporalio/temporal:1.8.1
-    command: [server, start-dev, --ip, 0.0.0.0, --db-filename, /data/temporal.db]
+    command: [server, start-dev, --ip, 0.0.0.0, --db-filename, /home/temporal/temporal.db]
     restart: unless-stopped
     ports: ['7233:7233', '8233:8233']
-    volumes: [temporal-data:/data]
+    # The official image runs as UID 1000; its home is writable and keeps SQLite persistence non-root.
+    volumes: [temporal-data:/home/temporal]
     healthcheck:
       test: [CMD, temporal, operator, cluster, health, --address, localhost:7233]
       interval: 8s
@@ -133,6 +168,10 @@ services:
 
   catalog-inventory-service:
     <<: *node-app
+    # One service owns the shared image build; the other Node containers reuse its result.
+    build:
+      context: .
+      target: development
     command:
       [
         sh,
@@ -140,7 +179,10 @@ services:
         'pnpm --filter @ecommerce/catalog-inventory-service db:deploy && pnpm --filter @ecommerce/catalog-inventory-service db:seed && pnpm --filter @ecommerce/catalog-inventory-service dev',
       ]
     depends_on:
-      { catalog-db: { condition: service_healthy }, kafka: { condition: service_healthy } }
+      {
+        catalog-db: { condition: service_healthy },
+        kafka-init: { condition: service_completed_successfully },
+      }
     environment:
       <<: *service-environment
       SERVICE_NAME: catalog-inventory-service
@@ -172,7 +214,7 @@ services:
     depends_on:
       {
         cart-db: { condition: service_healthy },
-        kafka: { condition: service_healthy },
+        kafka-init: { condition: service_completed_successfully },
         keycloak: { condition: service_started },
       }
     environment:
@@ -208,7 +250,7 @@ services:
     depends_on:
       {
         order-db: { condition: service_healthy },
-        kafka: { condition: service_healthy },
+        kafka-init: { condition: service_completed_successfully },
         keycloak: { condition: service_started },
       }
     environment:
@@ -248,7 +290,7 @@ services:
     depends_on:
       {
         order-db: { condition: service_healthy },
-        kafka: { condition: service_healthy },
+        kafka-init: { condition: service_completed_successfully },
         temporal: { condition: service_healthy },
         keycloak: { condition: service_started },
         catalog-inventory-service: { condition: service_healthy },
@@ -291,7 +333,7 @@ services:
     depends_on:
       {
         payment-db: { condition: service_healthy },
-        kafka: { condition: service_healthy },
+        kafka-init: { condition: service_completed_successfully },
         keycloak: { condition: service_started },
       }
     environment:
@@ -329,7 +371,7 @@ services:
     depends_on:
       {
         notification-db: { condition: service_healthy },
-        kafka: { condition: service_healthy },
+        kafka-init: { condition: service_completed_successfully },
         mailpit: { condition: service_started },
       }
     environment:
@@ -483,7 +525,6 @@ services:
     depends_on: { kafka: { condition: service_healthy } }
 
 volumes:
-  workspace-node-modules:
   catalog-db-data:
   cart-db-data:
   order-db-data:

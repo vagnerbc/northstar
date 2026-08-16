@@ -7,9 +7,32 @@ const run = (command, args, options = {}) =>
 let exitCode = 1;
 try {
   const started = run('docker', [...compose, 'up', '--build', '--wait']);
-  if (started.status !== 0)
+  if (started.status !== 0) {
+    // Compose cleanup runs in finally, so capture actionable diagnostics before resources disappear.
+    run('docker', [...compose, 'ps', '--all']);
+    run('docker', [...compose, 'logs', '--no-color', '--tail', '200']);
     throw new Error('The isolated E2E Compose stack did not become healthy.');
+  }
   exitCode = run('pnpm', ['exec', 'playwright', 'test']).status ?? 1;
+  if (exitCode !== 0) {
+    run('docker', [...compose, 'ps', '--all']);
+    run('docker', [
+      ...compose,
+      'logs',
+      '--no-color',
+      '--tail',
+      '300',
+      'catalog-inventory-service',
+      'cart-service',
+      'order-service',
+      'payment-service',
+      'notification-service',
+      'checkout-worker',
+      'temporal',
+      'kong',
+      'web',
+    ]);
+  }
 } finally {
   // The fixed project name ensures cleanup can only remove resources created by this test stack.
   run('docker', [...compose, 'down', '--volumes', '--remove-orphans']);

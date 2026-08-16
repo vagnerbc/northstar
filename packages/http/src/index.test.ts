@@ -49,6 +49,21 @@ describe('AppError', () => {
     expect(next).toHaveBeenCalledWith();
   });
 
+  it('replaces getter-only Express 5 query input with parsed values', () => {
+    const middleware = validate(z.object({ limit: z.coerce.number().int() }), 'query');
+    const request = {} as Request;
+    Object.defineProperty(request, 'query', {
+      configurable: true,
+      get: () => ({ limit: '20' }),
+    });
+    const next = vi.fn();
+
+    middleware(request, {} as Response, next);
+
+    expect(request.query).toEqual({ limit: 20 });
+    expect(next).toHaveBeenCalledWith();
+  });
+
   it('turns validation failures into a typed application error', () => {
     const middleware = validate(z.object({ quantity: z.number().positive() }));
     const next = vi.fn();

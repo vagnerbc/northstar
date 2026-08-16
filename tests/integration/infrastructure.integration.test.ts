@@ -19,8 +19,10 @@ describeWithDocker('disposable infrastructure', () => {
   afterAll(async () => Promise.all([postgres.stop(), kafka.stop()]));
 
   it('starts physically separate PostgreSQL and Kafka endpoints', () => {
-    expect(postgres.getConnectionUri()).toMatch(/^postgresql:\/\//);
-    expect(kafka.getBrokers()).toHaveLength(1);
+    // Both PostgreSQL URI schemes are accepted by libpq-compatible clients.
+    expect(postgres.getConnectionUri()).toMatch(/^postgres(?:ql)?:\/\//);
+    expect(kafka.getHost()).toBeTruthy();
+    expect(kafka.getMappedPort(9093)).toBeGreaterThan(0);
   });
 });
 

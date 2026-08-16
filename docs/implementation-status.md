@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 ## Completed
 
@@ -12,17 +12,21 @@ Last updated: 2026-08-14
 - Inventory reservation and Stripe manual-capture Saga, pre/post-capture compensation, timers, deterministic workflow ID and manual-review state.
 - Stripe signed webhook receipts, test-only fake provider, SMTP/SES notification adapters, quantity-aware cart cleanup.
 - Responsive React/Chakra buyer UI with TanStack Query, Stripe Elements, polling, error references, unit and Playwright tests.
+- Strict Mode-safe Keycloak initialization prevents duplicate check-sso redirects during development and strips stale authentication fragments from login and registration return URLs.
 - Docker-first lite/full/E2E configurations, KRaft Kafka, Temporal dev server, Mailpit, Grafana/Prometheus/Tempo/Loki/Alloy, exporters and starter dashboard/alerts.
+- Idempotent local Kafka topic initialization, non-root Temporal SQLite persistence, cross-platform Compose Watch hot reload, shared Docker build caching, and automatic E2E failure diagnostics.
 - GitHub PR CI, protected OIDC deployment workflow, Terraform bootstrap/modules/dev composition, runbooks, ADRs, threat model, and cost warning.
 - Local generated artifacts, formatting, lint, strict type-check, unit tests, coverage thresholds, and production builds pass.
 
-## Verification on 2026-08-14
+## Verification on 2026-08-15
 
-- `pnpm generate`, formatting, ESLint, strict type-check, unit coverage, and all workspace production builds passed.
-- Risk-focused coverage reached 96% statements, 92.85% branches, 94% functions, and 96.25% lines.
-- Both normal and isolated-E2E Compose configurations passed `docker compose config`.
+- `pnpm check` passed formatting, ESLint, strict type-check, all workspace unit tests, and all production builds.
+- The risk-focused suite passed 50 tests and reached 96% statements, 92.85% branches, 94% functions, and 96.25% lines.
+- Testcontainers started disposable PostgreSQL and Kafka instances; both infrastructure and Stripe-signing integration tests passed.
+- The isolated Docker stack passed every health check and both Chromium scenarios passed: seeded catalog browsing and the complete durable fake-payment checkout through Kong, Kafka, Temporal, inventory, orders, and payment.
+- The exact `pnpm dev:lite` workflow reached Compose Watch mode and every service became healthy on Docker Desktop. Browser verification covered the storefront, seeded catalog, product detail, and the protected add-to-cart redirect to the Keycloak login page; a regression test verifies one-time Keycloak initialization under React Strict Mode.
+- Lite, full-observability, and isolated-E2E Compose configurations passed `docker compose config`; E2E cleanup left no temporary containers.
 - Terraform 1.13.4 formatted and validated both the state bootstrap and the `dev` composition with AWS provider 6.60.0.
-- Container-backed integration and Playwright execution could not run in this authoring environment because its Docker daemon was stopped. CI and the documented local commands remain configured to run them with Docker available.
 
 ## Deliberate limitations and next hardening work
 

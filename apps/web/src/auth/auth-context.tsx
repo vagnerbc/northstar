@@ -29,7 +29,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(authDisabled);
 
   useEffect(() => {
-    if (authDisabled) return;
+    if (authDisabled || keycloak.current) return;
+
+    // React Strict Mode intentionally re-runs effects in development. Keeping the client in the
+    // ref prevents two concurrent check-sso redirects and makes Keycloak initialization idempotent.
     const client = new Keycloak({
       url: import.meta.env.VITE_KEYCLOAK_URL ?? 'http://localhost:8080',
       realm: import.meta.env.VITE_KEYCLOAK_REALM ?? 'ecommerce',
@@ -39,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void client
       .init({ onLoad: 'check-sso', pkceMethod: 'S256', checkLoginIframe: false })
       .then((value) => setAuthenticated(value))
+      .catch(() => setAuthenticated(false))
       .finally(() => setReady(true));
   }, []);
 
@@ -59,19 +63,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : ((keycloak.current?.tokenParsed?.preferred_username as string | undefined) ?? 'Buyer'),
       getToken,
       login: async () => {
-        await keycloak.current?.login({ redirectUri: window.location.href });
+        await keycloak.current?.login({ redirectUri: redirectUriWithoutAuthFragment() });
       },
       logout: async () => {
         await keycloak.current?.logout({ redirectUri: window.location.origin });
       },
       register: async () => {
-        await keycloak.current?.register({ redirectUri: window.location.href });
+        await keycloak.current?.register({ redirectUri: redirectUriWithoutAuthFragment() });
       },
     }),
     [authenticated, getToken, ready],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function redirectUriWithoutAuthFragment(): string {
+  const redirectUri = new URL(window.location.href);
+  redirectUri.hash = '';
+  return redirectUri.toString();
 }
 
 export function useAuth(): AuthContextValue {
