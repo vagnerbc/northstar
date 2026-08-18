@@ -65,7 +65,7 @@ Put test-mode `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `VITE_STRIPE_PUB
 
 There is no standalone service registry. Docker DNS is authoritative locally; ECS Service Connect/Cloud Map supplies stable internal names in AWS. This avoids another control plane without losing discoverability.
 
-See [architecture](docs/architecture.md), [testing](docs/testing.md), [security](docs/security/threat-model.md), [costs](docs/aws-costs.md), [ADRs](docs/adrs), [runbooks](docs/runbooks), and [implementation status](docs/implementation-status.md). Generated contracts live at [OpenAPI](docs/api/openapi.json) and [AsyncAPI](docs/api/asyncapi.json).
+Start with the [detailed project guide](docs/project-guide/README.md) for a complete English walkthrough with visual diagrams. See also [architecture](docs/architecture.md), [testing](docs/testing.md), [security](docs/security/threat-model.md), [costs](docs/aws-costs.md), [ADRs](docs/adrs), [runbooks](docs/runbooks), and [implementation status](docs/implementation-status.md). Generated contracts live at [OpenAPI](docs/api/openapi.json) and [AsyncAPI](docs/api/asyncapi.json).
 
 ## Repository map
 
